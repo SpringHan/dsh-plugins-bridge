@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "插件桥接",
+    "description": "把所选插件的 API 与 Agent 工具通过受令牌保护的本地 HTTP 接口暴露给 Emacs、Vim 等外部编辑器。"
+  }
+}

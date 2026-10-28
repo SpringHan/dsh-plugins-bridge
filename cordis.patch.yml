@@ -1,0 +1,9 @@
+# dsh-plugins-bridge bundle patch.
+#
+# The host half registers the loopback management API (`/plugins-bridge/api`)
+# and the token-protected external API (`/plugins-bridge/v1`) on
+# `dsh-host-webserver`. The client half registers the settings page that
+# chooses which plugins are exposed.
+- insert:
+    - id: plugins-bridge
+      name: dsh-plugins-bridge

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugins Bridge",
+    "description": "Expose selected plugin APIs and agent tools over a token-protected local HTTP endpoint for editors such as Emacs and Vim."
+  }
+}
