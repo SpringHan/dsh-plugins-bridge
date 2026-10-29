@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { buildCatalog, hasEndpoints, summarizeEndpoint } from './lib/catalog.js';
+import { buildRouteGroups, collectRoutes, findRoute, isThirdPartyPackage, routeSegment } from './lib/routes.js';
 import {
   generateToken,
   loadConfigSync,
@@ -164,9 +165,29 @@ function activate(ctx) {
    */
   const readCatalog = (lang) => buildCatalog(readEntryRows(lang), ctx.typert.local.list());
 
+  /**
+   * Discover route groups registered on the web server and attribute them to
+   * catalog packages. The same projection feeds the settings page and the
+   * external route listing.
+   * @param catalog - current catalog rows.
+   * @returns route groups.
+   */
+  const readRouteGroups = (catalog) => buildRouteGroups(
+    collectRoutes(ctx.webServer),
+    catalog.map((row) => ({ package: row.package, title: row.title })),
+    config.exposedRoutes,
+    API_PREFIX,
+  );
+
   /** The full management state for one language. */
   const readState = (lang) => {
     const catalog = readCatalog(lang);
+    const routeGroups = readRouteGroups(catalog);
+    const routeCountByPackage = new Map();
+    for (const group of routeGroups) {
+      if (typeof group.package !== 'string') continue;
+      routeCountByPackage.set(group.package, (routeCountByPackage.get(group.package) ?? 0) + group.routeCount);
+    }
     const exposed = new Set(config.exposedPackages);
     const endpointCount = catalog.reduce((total, row) => total + row.endpoints.length, 0);
     return {
@@ -176,6 +197,7 @@ function activate(ctx) {
       token: config.token,
       tokenMasked: maskToken(config.token),
       exposedPackages: config.exposedPackages,
+      exposedRoutes: config.exposedRoutes,
       exposeTools: config.exposeTools,
       baseUrl: externalBaseUrl(ctx),
       managementPath: MANAGEMENT_PREFIX,
@@ -186,7 +208,10 @@ function activate(ctx) {
         apiPackages: catalog.filter(hasEndpoints).length,
         endpoints: endpointCount,
         exposed: catalog.filter((row) => exposed.has(row.package) && hasEndpoints(row)).length,
+        routeGroups: routeGroups.length,
+        exposedRouteGroups: routeGroups.filter((group) => group.selected).length,
       },
+      routes: routeGroups,
       tools: readToolState(),
       agents: readAgents(),
       plugins: catalog.map((row) => ({
@@ -198,6 +223,8 @@ function activate(ctx) {
         enabled: row.enabled,
         selected: exposed.has(row.package),
         endpointCount: row.endpoints.length,
+        httpRouteCount: routeCountByPackage.get(row.package) ?? 0,
+        thirdParty: isThirdPartyPackage(row.package),
         streamCount: row.endpoints.filter((endpoint) => endpoint.kind === 'stream').length,
         endpoints: row.endpoints.map(summarizeEndpoint),
         entries: row.entries,
@@ -231,6 +258,7 @@ function activate(ctx) {
     phase: row.phase,
     enabled: row.enabled,
     selected: config.exposedPackages.includes(row.package),
+    thirdParty: isThirdPartyPackage(row.package),
     entries: row.entries,
     endpointCount: row.endpoints.length,
     endpoints: row.endpoints,
@@ -404,6 +432,20 @@ function activate(ctx) {
       }
       next.exposedPackages = body.exposedPackages;
     }
+    if (body.exposedRoutes !== undefined) {
+      if (!Array.isArray(body.exposedRoutes)) {
+        throw httpError(400, 'invalid-exposed-routes', 'exposedRoutes must be an array of route-group ids', 'exposedRoutes');
+      }
+      if (body.exposedRoutes.length > 200) {
+        throw httpError(400, 'too-many-routes', 'exposedRoutes may hold at most 200 groups', 'exposedRoutes');
+      }
+      for (const value of body.exposedRoutes) {
+        if (typeof value !== 'string' || value.trim() === '') {
+          throw httpError(400, 'invalid-exposed-routes', 'every exposedRoutes entry must be a non-empty string', 'exposedRoutes');
+        }
+      }
+      next.exposedRoutes = body.exposedRoutes;
+    }
     if (body.regenerateToken === true) next.token = generateToken();
     config = saveConfigSync(configPath, normalizeConfig(next));
   };
@@ -518,6 +560,47 @@ function activate(ctx) {
     });
   };
 
+  /**
+   * Forward one request to an exposed plugin route.
+   *
+   * The target handler is called directly with the original request object so
+   * its body stream, method, headers, and response ownership are preserved.
+   * Only `req.url` is rewritten to the target path. The target route's own
+   * checks (loopback, browser session, method, body) still run.
+   *
+   * @param req - incoming request.
+   * @param res - server response.
+   * @param url - parsed external URL.
+   */
+  const forwardRoute = async (req, res, url) => {
+    const prefix = `${EXTERNAL_PREFIX}/http`;
+    const targetPath = url.pathname.slice(prefix.length);
+    if (targetPath === '' || targetPath === '/') {
+      throw httpError(400, 'missing-route-path', 'use /v1/http/<route-group>/<path>', 'path');
+    }
+    if (targetPath === API_PREFIX || targetPath.startsWith(`${API_PREFIX}/`)) {
+      throw httpError(403, 'recursive-route', 'the bridge cannot proxy its own routes');
+    }
+    const segment = routeSegment(targetPath);
+    if (segment === undefined) {
+      throw httpError(400, 'invalid-route-path', 'the target path has no route group', 'path');
+    }
+    if (!config.exposedRoutes.includes(segment)) {
+      throw httpError(403, 'route-not-exposed', `route group ${JSON.stringify(segment)} is not exposed; enable it in Settings`, 'path');
+    }
+    const route = findRoute(ctx.webServer, targetPath);
+    if (route === undefined || routeSegment(route.path) !== segment) {
+      throw httpError(404, 'route-not-found', `no registered route matches ${JSON.stringify(targetPath)}`, 'path');
+    }
+    const originalUrl = req.url;
+    req.url = `${targetPath}${url.search}`;
+    try {
+      await route.handler(req, res);
+    } finally {
+      req.url = originalUrl;
+    }
+  };
+
   /** External routes: bearer token, loopback. */
   const handleExternal = async (req, res, url, path, lang) => {
     const route = path.slice(EXTERNAL_PREFIX.length) || '/';
@@ -537,6 +620,8 @@ function activate(ctx) {
           plugin: `${EXTERNAL_PREFIX}/plugin?package=<name>`,
           agents: `${EXTERNAL_PREFIX}/agents`,
           invoke: `${EXTERNAL_PREFIX}/invoke`,
+          routes: `${EXTERNAL_PREFIX}/routes`,
+          http: `${EXTERNAL_PREFIX}/http/<route-group>/<path>`,
           tools: `${EXTERNAL_PREFIX}/tools`,
           toolInvoke: `${EXTERNAL_PREFIX}/tools/invoke`,
         },
@@ -553,7 +638,10 @@ function activate(ctx) {
       });
       return;
     }
-    if (method === 'POST') requireJsonContentType(req);
+    if (route === '/http' || route.startsWith('/http/')) {
+      await forwardRoute(req, res, url);
+      return;
+    }
     if (route === '/plugins' && method === 'GET') {
       const catalog = readCatalog(lang);
       const exposed = catalog.filter((row) => config.exposedPackages.includes(row.package) && hasEndpoints(row));
@@ -585,6 +673,25 @@ function activate(ctx) {
       sendJson(res, 200, { ok: true, ...readPluginDetail(lang, packageName, endpointName ?? undefined) });
       return;
     }
+    if (route === '/routes' && method === 'GET') {
+      const catalog = readCatalog(lang);
+      const groups = readRouteGroups(catalog);
+      sendJson(res, 200, {
+        ok: true,
+        routes: groups.map((group) => ({
+          id: group.id,
+          title: group.title,
+          package: group.package,
+          thirdParty: group.thirdParty,
+          selected: group.selected,
+          kinds: group.kinds,
+          prefixes: group.prefixes,
+          routeCount: group.routeCount,
+          paths: group.paths,
+        })),
+      });
+      return;
+    }
     if (route === '/agents' && method === 'GET') {
       sendJson(res, 200, { ok: true, agents: readAgents() });
       return;
@@ -607,6 +714,7 @@ function activate(ctx) {
       return;
     }
     if (route === '/invoke' && method === 'POST') {
+      requireJsonContentType(req);
       const body = await readJsonBody(req, BODY_LIMIT);
       const target = resolveTarget(body);
       const args = body.args === undefined ? {} : body.args;
@@ -624,6 +732,7 @@ function activate(ctx) {
     }
     if (route === '/tools/invoke' && method === 'POST') {
       requireToolsExposed();
+      requireJsonContentType(req);
       const body = await readJsonBody(req, BODY_LIMIT);
       const outcome = await callWithTimeout((signal) => invokeTool(body, signal), req, TOOL_TIMEOUT_MS);
       sendJson(res, 200, outcome);
@@ -632,6 +741,7 @@ function activate(ctx) {
     sendMethodOrNotFound(res, method, route, {
       '/plugins': ['GET'],
       '/plugin': ['GET'],
+      '/routes': ['GET'],
       '/agents': ['GET'],
       '/tools': ['GET'],
       '/invoke': ['POST'],

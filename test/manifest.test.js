@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -22,6 +22,8 @@ test('the manifest declares the bundle, client, and runtime exports', () => {
   for (const required of ['index.js', 'client.js', 'cordis.patch.yml', 'locale/*.json', 'icon.svg', 'LICENSE']) {
     assert.ok(manifest.files.includes(required), `files must include ${required}`);
   }
+  assert.ok(manifest.files.includes('lib/**/*.js'));
+  assert.ok(existsSync(join(root, 'lib/routes.js')), 'the route projector must be present');
 });
 
 test('the bundle patch mounts the package it belongs to', () => {
@@ -55,6 +57,8 @@ test('the client half uses the lazy module protocol and the settings seat', () =
   assert.match(client, /id:\s*'dsh-plugins-bridge'/u);
   assert.match(client, /ctx\.slots\.inject\('settings\.section'/u);
   assert.match(client, /ctx\.slots\.register\(/u);
+  assert.match(client, /exposedRoutes/u);
+  assert.match(client, /routesTitle/u);
   assert.doesNotMatch(client, /@deepseek-ai\/dsh-client-ui-primitives/u);
 });
 

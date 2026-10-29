@@ -11,6 +11,28 @@ process.env.DSH_PROFILE = 'test';
 
 const { apply } = await import('../index.js');
 
+/** A route handler that echoes the request line it received. */
+function echoRoute(payload) {
+  return async (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ...payload, url: req.url, method: req.method }));
+  };
+}
+
+/** A route handler that echoes a raw request body. */
+function bodyRoute() {
+  return async (req, res) => {
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', resolve);
+      req.on('error', reject);
+    });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ url: req.url, method: req.method, body: Buffer.concat(chunks).toString('utf8') }));
+  };
+}
+
 /** Each fake host gets its own profile so config never leaks between tests. */
 let profileCounter = 0;
 
@@ -25,7 +47,14 @@ function fakeHost(options = {}) {
   const calls = [];
   const peers = [];
   const routes = [];
+  const exact = new Map();
+  const prefixes = new Map();
   const add = (descriptor) => descriptors.set(descriptor.id.slice(descriptor.id.indexOf('#') + 1), descriptor);
+  const seed = (route) => (route.kind === 'exact' ? exact : prefixes).set(route.path, route);
+  seed({ kind: 'exact', path: '/dsh-session-manager/stats', handler: echoRoute({ source: 'session-stats' }) });
+  seed({ kind: 'exact', path: '/dsh-session-manager/delete', handler: bodyRoute() });
+  seed({ kind: 'prefix', path: '/mcp-manager-plus', handler: echoRoute({ source: 'mcp' }) });
+  seed({ kind: 'exact', path: '/dsh-whale/balance.json', handler: echoRoute({ source: 'whale' }) });
 
   add({
     id: '@scope/plugin#things/list',
@@ -89,9 +118,13 @@ function fakeHost(options = {}) {
     },
     webServer: {
       port: 3080,
+      exact,
+      prefixes,
       register(route) {
         routes.push(route);
-        return () => {};
+        const table = route.kind === 'exact' ? exact : prefixes;
+        table.set(route.path, route);
+        return () => table.delete(route.path);
       },
       getOrigin() {
         return 'http://127.0.0.1:3080';
@@ -128,6 +161,9 @@ function fakeHost(options = {}) {
       entries: function* () {
         yield entry('plugin', '@scope/plugin');
         yield entry('other', '@scope/other');
+        yield entry('session-manager', 'dsh-session-manager');
+        yield entry('mcp-manager', 'dsh-mcp-manager-plus');
+        yield entry('whale', 'dsh-whale-widget');
         yield { options: { group: true }, ctx: {}, fiber: { state: 'active' } };
       },
     },
@@ -205,7 +241,7 @@ test('management state lists live descriptor packages', async () => {
   const result = await call(handler, {});
   assert.equal(result.status, 200);
   assert.equal(result.json.ok, true);
-  assert.equal(result.json.plugins.length, 2);
+  assert.equal(result.json.plugins.filter((row) => row.thirdParty).length, 5);
   const plugin = result.json.plugins.find((row) => row.package === '@scope/plugin');
   assert.equal(plugin.endpointCount, 2);
   assert.equal(plugin.streamCount, 1);
@@ -215,6 +251,15 @@ test('management state lists live descriptor packages', async () => {
   assert.match(result.json.token, /^[0-9a-f]{48}$/u);
   assert.match(result.json.baseUrl, /\/plugins-bridge\/v1$/u);
   assert.equal(result.json.stats.apiPackages, 2);
+  assert.deepEqual(result.json.stats.routeGroups, 3);
+  assert.equal(result.json.stats.exposedRouteGroups, 0);
+  assert.deepEqual(result.json.routes.map((group) => group.id), ['mcp-manager-plus', 'dsh-session-manager', 'dsh-whale']);
+  assert.ok(result.json.routes.every((group) => group.thirdParty === true));
+  const session = result.json.plugins.find((row) => row.package === 'dsh-session-manager');
+  assert.equal(session.endpointCount, 0);
+  assert.equal(session.httpRouteCount, 2);
+  assert.equal(session.thirdParty, true);
+  assert.equal(session.selected, false);
 });
 
 test('a corrupt config file is replaced by a valid default', async () => {
@@ -381,6 +426,76 @@ test('a unique exposed endpoint may omit its package', async () => {
   });
   assert.equal(result.status, 200);
   assert.equal(result.json.package, '@scope/plugin');
+});
+
+test('exposed HTTP route groups are listed and proxied', async () => {
+  const { handler } = fakeHost();
+  const initial = await call(handler, {});
+  const token = initial.json.token;
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+
+  const saved = await call(handler, {
+    method: 'POST',
+    url: '/plugins-bridge/api/config',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ exposedRoutes: ['mcp-manager-plus', 'dsh-session-manager'] }),
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json.exposedRoutes, ['mcp-manager-plus', 'dsh-session-manager']);
+  assert.equal(saved.json.stats.exposedRouteGroups, 2);
+
+  const listed = await call(handler, { url: '/plugins-bridge/v1/routes', headers });
+  assert.equal(listed.status, 200);
+  assert.deepEqual(
+    listed.json.routes.filter((group) => group.selected).map((group) => group.id),
+    ['mcp-manager-plus', 'dsh-session-manager'],
+  );
+  assert.equal(listed.json.routes.length, 3);
+
+  const prefixed = await call(handler, {
+    url: '/plugins-bridge/v1/http/mcp-manager-plus/servers?lang=en',
+    headers,
+  });
+  assert.equal(prefixed.status, 200);
+  assert.equal(prefixed.json.source, 'mcp');
+  assert.equal(prefixed.json.url, '/mcp-manager-plus/servers?lang=en');
+
+  const exact = await call(handler, { url: '/plugins-bridge/v1/http/dsh-session-manager/stats', headers });
+  assert.equal(exact.status, 200);
+  assert.equal(exact.json.source, 'session-stats');
+  assert.equal(exact.json.url, '/dsh-session-manager/stats');
+
+  const withBody = await call(handler, {
+    method: 'POST',
+    url: '/plugins-bridge/v1/http/dsh-session-manager/delete',
+    headers,
+    body: '{"id":"session-1"}',
+  });
+  assert.equal(withBody.status, 200);
+  assert.equal(withBody.json.url, '/dsh-session-manager/delete');
+  assert.equal(withBody.json.body, '{"id":"session-1"}');
+});
+
+test('unexposed routes, recursive routes, and missing route paths are rejected', async () => {
+  const { handler } = fakeHost();
+  const initial = await call(handler, {});
+  const token = initial.json.token;
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+
+  const unexposed = await call(handler, { url: '/plugins-bridge/v1/http/dsh-whale/balance.json', headers });
+  assert.equal(unexposed.status, 403);
+  assert.equal(unexposed.json.error.code, 'route-not-exposed');
+
+  const recursive = await call(handler, { url: '/plugins-bridge/v1/http/plugins-bridge/api/state', headers });
+  assert.equal(recursive.status, 403);
+  assert.equal(recursive.json.error.code, 'recursive-route');
+
+  const missing = await call(handler, { url: '/plugins-bridge/v1/http', headers });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.json.error.code, 'missing-route-path');
+
+  const unauthenticated = await call(handler, { url: '/plugins-bridge/v1/routes' });
+  assert.equal(unauthenticated.status, 401);
 });
 
 test('management writes reject cross-origin browsers and non-JSON bodies', async () => {

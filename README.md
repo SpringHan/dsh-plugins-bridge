@@ -22,11 +22,27 @@ English | [中文](README.zh.md)
 |---|---|
 | **Plugin APIs** | Every unary `@Remote` method of a selected package, discovered at request time from the same generated reflection the Web UI uses. Grouped by npm package, with parameter/result JSON Schemas, descriptions, and `agentId` requirements. |
 | **Plugin information** | Loader entry ids, module specifiers, fiber phase, enablement, package version, and display metadata for every installed plugin. |
+| **Plugin HTTP routes** | Route groups registered on `dsh-host-webserver` by plugins that do not expose a Typert API (a session manager or MCP manager, for example). Selected groups are proxied under `/v1/http/...`; the target route's own checks still apply. |
 | **Agent tools** (optional) | The Host's model-facing tools (`read`, `grep`, `subagent`, MCP tools, …), listed and invoked through `ctx.tools`, optionally scoped to a live session. |
 
-Packages without generated Typert reflection contribute no callable API; they
-still appear in the catalog with their Loader information. Streaming methods
-are listed but not bridged yet.
+Packages without generated Typert reflection contribute no Typert API; they
+still appear in the catalog with their Loader information, and their custom
+`dsh-host-webserver` routes appear as selectable route groups. Streaming
+methods are listed but not bridged yet.
+
+### Why are some third-party plugins absent from the API list?
+
+Many community plugins (for example a session manager or an MCP manager) are
+UI plugins that register **custom HTTP routes** on `dsh-host-webserver` instead
+of exposing generated Typert `@Remote` methods. The bridge discovers those
+routes from the live web-server route tables, attributes them to the plugin
+package, and shows them under **Plugin HTTP routes** in Settings. Select the
+route group there; its paths become callable under `/v1/http/<group>/...`.
+
+Route attribution is best-effort and the target route keeps its own
+authorization. A route that requires the DSH browser session will reject an
+external editor call; routes that only require loopback (the common case for
+these management plugins) work with the bridge token.
 
 ## Requirements
 
@@ -74,6 +90,19 @@ curl -s "$BASE/invoke" \
        "args":{}}'
 ```
 
+List discovered route groups and call one:
+
+```sh
+curl -s "$BASE/routes" -H "Authorization: Bearer $TOKEN"
+
+# After selecting the `mcp-manager-plus` group in Settings:
+curl -s "$BASE/http/mcp-manager-plus/servers" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Route groups are selected separately from API packages. The bridge token
+authorizes the proxy request; the target route still performs its own checks.
+
 Invoke a session-scoped API by passing the `agentId` the descriptor declares:
 
 ```sh
@@ -107,8 +136,11 @@ Full route reference, error codes, and editor examples:
   requires `Authorization: Bearer <token>` (or `X-Bridge-Token`). The token is
   24 random bytes, persisted with mode `0600`, and can be regenerated from the
   settings page.
-- **Explicit allowlist.** Only packages selected in Settings can be invoked.
-  The allowlist is enforced on every call, not just during discovery.
+- **Explicit allowlist.** Only packages and route groups selected in Settings
+  can be invoked. Both allowlists are enforced on every call, not just during
+  discovery.
+- **Target route auth.** A proxied HTTP route still runs its own loopback,
+  session, method, and body checks. The bridge token never replaces those.
 - **Owner authority.** Calls run through `ctx.typertGateway` with an
   `owner` peer — the same authority the browser UI has. Exposing a package
   grants exactly its Remote API, including destructive methods, to any local
@@ -144,6 +176,7 @@ Loader's base URL. The file is mode `0600` and contains:
   "enabled": true,
   "token": "…",
   "exposedPackages": ["@deepseek-ai/dsh-commands"],
+  "exposedRoutes": ["mcp-manager-plus"],
   "exposeTools": false
 }
 ```
@@ -163,6 +196,14 @@ Editing the file by hand takes effect on the next plugin reload.
   endpoints. Use the package-level choice deliberately.
 - **Agent tools have no plugin attribution.** The tools surface is a single
   built-in capability, not grouped by the package that registered each tool.
+- **Route discovery is best-effort.** It reads the live web server's `exact`
+  and `prefixes` tables. If a future Harness version renames them, the bridge
+  reports no route groups rather than failing. Upgrade (WebSocket) routes are
+  not proxied.
+- **Route attribution is heuristic.** A route group is matched to a package by
+  its top-level path segment. Unmatched groups are listed as DSH built-in and
+  hidden until "Show DSH built-in routes" is on. Routes that require a browser
+  session reject external calls — the target's authorization is not bypassed.
 - **Tool approvals still apply.** A tool that needs interactive approval can
   fail when no browser answerer is available.
 - **Web only.** Desktop uses a different transport and is out of scope.
@@ -175,10 +216,10 @@ npm run check     # syntax-check the host and client modules
 ```
 
 The tests cover configuration parsing/persistence, loopback and origin
-classification, manifest and display resources, JSON-safe result projection,
-catalog merging, HTTP routing, bearer auth, management-session rejection,
-invocation, and agent-tool execution against a fake Cordis context. They do not
-boot DSH.
+classification, manifest and display resources, route-table discovery and
+attribution, JSON-safe result projection, catalog merging, HTTP routing, bearer
+auth, management-session rejection, Remote invocation, HTTP route proxying, and
+agent-tool execution against a fake Cordis context. They do not boot DSH.
 
 Host code is loaded once per module generation. After editing `index.js` or
 `lib/*`, reload the plugin or restart `dsh web`; HMR does not replace an

@@ -19,10 +19,22 @@
 |---|---|
 | **插件 API** | 所选 npm 包的全部一元 `@Remote` 方法。每次请求都从 Web UI 所用的同一份生成反射中实时发现，按包分组，附带参数/返回 JSON Schema、说明和 `agentId` 要求。 |
 | **插件信息** | 每个已安装插件的 Loader entry id、模块说明符、Fiber 阶段、启用状态、包版本与展示元数据。 |
+| **插件 HTTP 路由** | 未提供 Typert API、但通过 `dsh-host-webserver` 注册自定义路由的插件（例如会话管理器、MCP 管理器）。勾选路由组后可通过 `/v1/http/...` 调用；目标路由自身的鉴权仍然生效。 |
 | **Agent 工具**（可选） | Host 的模型工具（`read`、`grep`、`subagent`、MCP 工具等），通过 `ctx.tools` 列出与执行，可绑定到活动会话。 |
 
-没有生成 Typert 反射的包不贡献可调用 API，但仍会带着 Loader 信息出现在目录中。
-流式方法会被列出，但暂不桥接。
+没有生成 Typert 反射的包不贡献 Typert API，但仍会带着 Loader 信息出现在目录中；
+它们注册在 `dsh-host-webserver` 上的自定义路由会以可选路由组的形式出现。流式方法
+会被列出，但暂不桥接。
+
+### 为什么 API 列表里没有某些第三方插件？
+
+很多社区插件（例如会话管理器、MCP 管理器）是 UI 插件，它们通过
+`dsh-host-webserver` 注册**自定义 HTTP 路由**，而不是生成 Typert `@Remote` 方法。
+桥接会从运行中的 WebServer 路由表发现这些路由，按包归属后显示在设置页的
+**插件 HTTP 接口**中。勾选路由组后，其路径即可通过 `/v1/http/<组名>/...` 调用。
+
+路由归属是尽力而为的启发式匹配，且目标路由保留自己的鉴权。要求 DSH 浏览器会话
+的路由会拒绝外部编辑器调用；只要求回环的常见管理插件则可用桥接令牌调用。
 
 ## 环境要求
 
@@ -67,6 +79,18 @@ curl -s "$BASE/invoke" \
        "args":{}}'
 ```
 
+列出并调用 HTTP 路由组：
+
+```sh
+curl -s "$BASE/routes" -H "Authorization: Bearer $TOKEN"
+
+# 在设置中勾选 mcp-manager-plus 后：
+curl -s "$BASE/http/mcp-manager-plus/servers" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+路由组与 API 包分开选择。桥接令牌只授权代理请求，目标路由仍执行自己的检查。
+
 带会话的 API 传入描述符声明的 `agentId`：
 
 ```sh
@@ -97,7 +121,10 @@ curl -s "$BASE/tools/invoke" \
 - **Bearer 令牌。** 除发现接口（`/v1`、`/v1/health`）外，所有 `/v1` 路由都要求
   `Authorization: Bearer <token>`（或 `X-Bridge-Token`）。令牌为 24 字节随机数，
   以 `0600` 权限持久化，可在设置页重新生成。
-- **显式白名单。** 只有设置中勾选的包才能调用；每次调用都校验，而不仅是发现时。
+- **显式白名单。** 只有设置中勾选的包和路由组才能调用；两者每次调用都校验，而不
+  仅是发现时。
+- **目标路由鉴权。** 被代理的 HTTP 路由仍执行自己的回环、会话、方法和请求体检查；
+  桥接令牌不会替代它们。
 - **Owner 权限。** 调用通过 `ctx.typertGateway` 以 `owner` peer 执行，与浏览器 UI
   权限相同。暴露某个包就等于把该包的全部 Remote 能力（包括破坏性方法）交给任何
   拿到令牌的本地程序。
@@ -128,6 +155,7 @@ $DSH_HOME/plugins-bridge.json                      # 否则
   "enabled": true,
   "token": "…",
   "exposedPackages": ["@deepseek-ai/dsh-commands"],
+  "exposedRoutes": ["mcp-manager-plus"],
   "exposeTools": false
 }
 ```
@@ -143,6 +171,10 @@ $DSH_HOME/plugins-bridge.json                      # 否则
   插件清单里）。
 - **无接口级白名单。** 勾选一个包会暴露其全部一元接口，请谨慎选择。
 - **Agent 工具没有插件归属。** 工具是单独的内置能力，不按注册它的包分组。
+- **路由发现是尽力而为。** 读取 WebServer 的 `exact` / `prefixes` 表；未来版本若改名，
+  桥接会报告无路由而不是失败。WebSocket/Upgrade 路由不会被代理。
+- **路由归属是启发式。** 按路径首段匹配包；未匹配的组标为 DSH 内置，默认隐藏。
+  要求浏览器会话的目标路由会拒绝外部调用——桥接不会绕过其鉴权。
 - **工具审批仍然生效。** 需要交互审批的工具在没有浏览器应答者时可能失败。
 - **仅 Web。** Desktop 使用不同传输方式，不在范围内。
 
@@ -153,9 +185,9 @@ npm test          # node:test 单元 + 伪 Host 集成测试
 npm run check     # 语法检查 Host 与 Client 模块
 ```
 
-测试覆盖配置解析/持久化、回环与 Origin 判定、清单与展示资源、JSON 安全投影、
-目录合并、HTTP 路由、Bearer 认证、管理会话拒绝、调用与 Agent 工具执行；不会真正
-启动 DSH。
+测试覆盖配置解析/持久化、回环与 Origin 判定、清单与展示资源、路由表发现与归属、
+JSON 安全投影、目录合并、HTTP 路由、Bearer 认证、管理会话拒绝、Remote 调用、
+HTTP 路由代理与 Agent 工具执行；不会真正启动 DSH。
 
 Host 代码每个模块代际只加载一次。修改 `index.js` 或 `lib/*` 后需要重载插件或重启
 `dsh web`；HMR 不会替换已加载的 Host 模块。

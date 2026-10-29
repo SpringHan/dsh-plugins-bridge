@@ -60,6 +60,26 @@ window.__ModuleLoader__.load({
         statsEndpoints: '可调用接口',
         statsExposed: '已暴露插件',
         statsTools: 'Agent 工具',
+        statsRouteGroups: 'HTTP 路由组',
+        routesTitle: '插件 HTTP 接口',
+        routesHint:
+          '部分插件（例如会话管理器、MCP 管理器）只提供自定义 HTTP 路由，不提供 Typert API。勾选路由组后，可通过 /v1/http/<组名>/... 调用；目标路由自身的鉴权仍然生效。',
+        showSystemRoutes: '显示 DSH 内置路由',
+        hideSystemRoutes: '只看第三方路由',
+        routeCount: '{n} 条路由',
+        httpRouteCount: '{n} 个 HTTP 路由',
+        routeOnly: '无 Typert API；HTTP 路由在下方选择',
+        selectedRouteCount: '已选 {n} 个路由组',
+        noRoutes: '当前没有发现可选择的 HTTP 路由。',
+        noRouteSearch: '没有匹配的路由组。',
+        routeTargetAuth:
+          '目标路由自身的鉴权仍然生效：例如要求 DSH 浏览器会话的路由，会拒绝没有该会话的外部调用。',
+        usageRoutes: '调用一个 HTTP 路由',
+        usageRouteNote: '路由组内任意路径都可转发；目标路由负责方法、请求体与响应。',
+        systemRoute: 'DSH 内置',
+        routePrefix: '前缀',
+        thirdParty: '第三方',
+
         pluginsTitle: '选择要暴露的插件',
         pluginsHint:
           '列表来自当前运行中的 DSH 插件 API 反射。勾选后，该插件的全部非流式接口即可被外部调用；展开可查看参数与返回结构。',
@@ -150,6 +170,26 @@ window.__ModuleLoader__.load({
         statsEndpoints: 'Callable endpoints',
         statsExposed: 'Exposed plugins',
         statsTools: 'Agent tools',
+        statsRouteGroups: 'HTTP route groups',
+        routesTitle: 'Plugin HTTP routes',
+        routesHint:
+          'Some plugins (a session manager or an MCP manager, for example) expose custom HTTP routes instead of Typert APIs. Select a route group to forward calls through /v1/http/<group>/...; the target route’s own checks still apply.',
+        showSystemRoutes: 'Show DSH built-in routes',
+        hideSystemRoutes: 'Third-party only',
+        routeCount: '{n} routes',
+        httpRouteCount: '{n} HTTP routes',
+        routeOnly: 'No Typert API; choose its HTTP routes below',
+        selectedRouteCount: '{n} route groups selected',
+        noRoutes: 'No selectable HTTP routes were discovered.',
+        noRouteSearch: 'No matching route groups.',
+        routeTargetAuth:
+          'The target route’s own checks still apply: a route that requires the DSH browser session will reject an external call without it.',
+        usageRoutes: 'Call an HTTP route',
+        usageRouteNote: 'Any path inside the group is forwarded; the target route owns method, body, and response.',
+        systemRoute: 'DSH built-in',
+        routePrefix: 'prefix',
+        thirdParty: 'Third-party',
+
         pluginsTitle: 'Choose plugins to expose',
         pluginsHint:
           'The list comes from the live DSH plugin API reflection. Selecting a plugin exposes all of its non-streaming endpoints; expand a row to inspect parameters and result schemas.',
@@ -207,16 +247,17 @@ window.__ModuleLoader__.load({
     };
 
     var CSS = [
-      '.dpb-root{display:flex;flex-direction:column;gap:18px;max-width:900px;padding:4px 2px 28px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}',
-      '.dpb-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}',
+      '.dpb-root{display:flex;flex-direction:column;gap:0;height:100%;min-height:0;max-height:100%;max-width:900px;padding:0;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}',
+      '.dpb-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}',
+      '.dpb-headtext{flex:1 1 auto;min-width:0}',
       '.dpb-head h2{margin:0 0 4px;font-size:15px;font-weight:600}',
       '.dpb-head p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;max-width:620px}',
-      '.dpb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}',
-      '.dpb-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;line-height:1.4;cursor:pointer;white-space:nowrap}',
+      '.dpb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 0 auto}',
+      '.dpb-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;line-height:1.4;cursor:pointer;white-space:nowrap;flex:0 0 auto}',
       '.dpb-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}',
       '.dpb-btn:disabled{opacity:.45;cursor:default}',
-      '.dpb-btn-primary{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}',
-      '.dpb-btn-primary:hover:not(:disabled){filter:brightness(1.06);background:var(--dsw-alias-brand-primary)}',
+      '.dpb-btn-primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground);font-weight:600}',
+      '.dpb-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}',
       '.dpb-btn-ghost{border-color:transparent;background:transparent;color:var(--dsw-alias-label-secondary);padding:3px 6px}',
       '.dpb-btn-ghost:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}',
       '.dpb-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
@@ -269,7 +310,9 @@ window.__ModuleLoader__.load({
       '.dpb-empty{padding:22px 14px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px}',
       '.dpb-pre{margin:0;padding:9px 11px;border-radius:8px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary)}',
       '.dpb-loading{padding:30px 14px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px}',
-      '.dpb-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}',
+      '.dpb-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:18px;padding:4px 2px 18px;scrollbar-gutter:stable}',
+      '.dpb-scroll > *{flex:0 0 auto}',
+      '.dpb-foot{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;padding:10px 2px 14px;background:var(--dsw-alias-bg-layer-2);border-top:1px solid var(--dsw-alias-border-l1)}',
       '.dpb-token-actions{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}',
       '.dpb-plugin.selected{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, transparent)}',
     ].join('');
@@ -458,7 +501,8 @@ window.__ModuleLoader__.load({
       return {
         enabled: state.enabled,
         exposeTools: state.exposeTools,
-        selected: new Set(state.exposedPackages),
+        selected: new Set(Array.isArray(state.exposedPackages) ? state.exposedPackages : []),
+        selectedRoutes: new Set(Array.isArray(state.exposedRoutes) ? state.exposedRoutes : []),
       };
     }
 
@@ -470,6 +514,11 @@ window.__ModuleLoader__.load({
       if (state.exposedPackages.length !== draft.selected.size) return true;
       for (var index = 0; index < state.exposedPackages.length; index += 1) {
         if (!draft.selected.has(state.exposedPackages[index])) return true;
+      }
+      var savedRoutes = Array.isArray(state.exposedRoutes) ? state.exposedRoutes : [];
+      if (savedRoutes.length !== draft.selectedRoutes.size) return true;
+      for (var routeIndex = 0; routeIndex < savedRoutes.length; routeIndex += 1) {
+        if (!draft.selectedRoutes.has(savedRoutes[routeIndex])) return true;
       }
       return false;
     }
@@ -505,6 +554,9 @@ window.__ModuleLoader__.load({
       var showAllPair = useState(false);
       var showAll = showAllPair[0];
       var setShowAll = showAllPair[1];
+      var showSystemRoutesPair = useState(false);
+      var showSystemRoutes = showSystemRoutesPair[0];
+      var setShowSystemRoutes = showSystemRoutesPair[1];
       var expandedPair = useState({});
       var expanded = expandedPair[0];
       var setExpanded = expandedPair[1];
@@ -574,6 +626,7 @@ window.__ModuleLoader__.load({
               enabled: draft.enabled,
               exposeTools: draft.exposeTools,
               exposedPackages: Array.from(draft.selected),
+              exposedRoutes: Array.from(draft.selectedRoutes),
             },
           })
             .then(function (next) {
@@ -605,6 +658,7 @@ window.__ModuleLoader__.load({
               enabled: draft.enabled,
               exposeTools: draft.exposeTools,
               exposedPackages: Array.from(draft.selected),
+              exposedRoutes: Array.from(draft.selectedRoutes),
               regenerateToken: true,
             },
           })
@@ -647,6 +701,17 @@ window.__ModuleLoader__.load({
           if (selected.has(packageName)) selected.delete(packageName);
           else selected.add(packageName);
           return { enabled: current.enabled, exposeTools: current.exposeTools, selected: selected };
+        });
+      }, []);
+
+      /** Toggle one HTTP route group in the draft. */
+      var toggleRoute = useCallback(function (groupId) {
+        setDraft(function (current) {
+          if (current === null) return current;
+          var selectedRoutes = new Set(current.selectedRoutes);
+          if (selectedRoutes.has(groupId)) selectedRoutes.delete(groupId);
+          else selectedRoutes.add(groupId);
+          return Object.assign({}, current, { selectedRoutes: selectedRoutes });
         });
       }, []);
 
@@ -714,11 +779,22 @@ window.__ModuleLoader__.load({
       if (state === null || draft === null) return h('div', { className: 'dpb-root' });
 
       var dirty = isDirty(state, draft);
+      var routeGroups = Array.isArray(state.routes) ? state.routes : [];
       var visible = state.plugins.filter(function (row) {
-        if (!showAll && row.endpointCount === 0 && !draft.selected.has(row.package)) return false;
+        var routeCount = typeof row.httpRouteCount === 'number' ? row.httpRouteCount : 0;
+        if (!showAll && row.endpointCount === 0 && routeCount === 0 && !draft.selected.has(row.package)) return false;
         if (query.trim() === '') return true;
         var haystack = (row.title + ' ' + row.package + ' ' + (row.description || '')).toLowerCase();
         return haystack.indexOf(query.trim().toLowerCase()) >= 0;
+      });
+      var visibleRouteGroups = routeGroups.filter(function (group) {
+        if (!showSystemRoutes && group.system && !draft.selectedRoutes.has(group.id)) return false;
+        if (query.trim() === '') return true;
+        var haystack = (group.title + ' ' + group.id + ' ' + (group.package || '') + ' ' + group.paths.join(' ')).toLowerCase();
+        return haystack.indexOf(query.trim().toLowerCase()) >= 0;
+      });
+      var selectedRouteGroups = routeGroups.filter(function (group) {
+        return draft.selectedRoutes.has(group.id);
       });
       var selectedWithApi = state.plugins.filter(function (row) {
         return draft.selected.has(row.package) && row.endpointCount > 0;
@@ -736,6 +812,10 @@ window.__ModuleLoader__.load({
         endpoint: exampleEndpoint === undefined ? '<namespace>/<method>' : exampleEndpoint.endpoint,
         args: exampleArgs,
       };
+      var routeExample = selectedRouteGroups[0];
+      var routeExamplePath = routeExample !== undefined && Array.isArray(routeExample.paths) && routeExample.paths.length > 0
+        ? routeExample.paths[0]
+        : '/<route>';
 
       var saveButton = h(
         'button',
@@ -753,6 +833,9 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'dpb-root' },
         h('style', null, CSS),
+        h(
+          'div',
+          { className: 'dpb-scroll' },
 
         // Header
         h(
@@ -760,7 +843,7 @@ window.__ModuleLoader__.load({
           { className: 'dpb-head' },
           h(
             'div',
-            null,
+            { className: 'dpb-headtext' },
             h('h2', null, t('title')),
             h('p', null, t('description')),
           ),
@@ -768,15 +851,12 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'dpb-actions' },
             notice !== null ? h('span', { className: 'dpb-notice' }, notice) : null,
-            dirty ? h('span', { className: 'dpb-muted' }, t('unsaved')) : null,
             h(
               'button',
               { type: 'button', className: 'dpb-btn dpb-btn-ghost', onClick: load, disabled: loading, title: t('refresh') },
               h(Icon, { name: 'refresh' }),
-              ' ',
               t('refresh'),
             ),
-            saveButton,
           ),
         ),
 
@@ -795,6 +875,7 @@ window.__ModuleLoader__.load({
           stat(t('statsApiPackages'), state.stats.apiPackages),
           stat(t('statsEndpoints'), state.stats.endpoints),
           stat(t('statsExposed'), state.stats.exposed),
+          stat(t('statsRouteGroups'), routeGroups.length),
           stat(t('statsTools'), state.tools.count),
         ),
 
@@ -954,8 +1035,52 @@ window.__ModuleLoader__.load({
                       });
                     }),
                   ),
-            selectedWithApi.length === 0
+            selectedWithApi.length === 0 && selectedRouteGroups.length === 0
               ? h('div', { className: 'dpb-muted' }, t('noSelection'))
+              : null,
+          ),
+        ),
+
+        // Plugin HTTP routes
+        h(
+          'div',
+          { className: 'dpb-card' },
+          h(
+            'div',
+            { className: 'dpb-card-head' },
+            h(
+              'div',
+              null,
+              h('h3', { className: 'dpb-card-title' }, t('routesTitle')),
+              h('div', { className: 'dpb-muted' }, t('selectedRouteCount', { n: draft.selectedRoutes.size })),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dpb-btn dpb-btn-ghost',
+                onClick: function () { setShowSystemRoutes(!showSystemRoutes); },
+              },
+              showSystemRoutes ? t('hideSystemRoutes') : t('showSystemRoutes'),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dpb-card-body' },
+            h('div', { className: 'dpb-muted' }, t('routesHint')),
+            routeGroups.length === 0
+              ? h('div', { className: 'dpb-empty' }, t('noRoutes'))
+              : visibleRouteGroups.length === 0
+                ? h('div', { className: 'dpb-empty' }, t('noRouteSearch'))
+                : h(
+                    'div',
+                    { className: 'dpb-list' },
+                    visibleRouteGroups.map(function (group) {
+                      return renderRouteGroup(group, t, draft.selectedRoutes.has(group.id), toggleRoute);
+                    }),
+                  ),
+            selectedRouteGroups.length > 0
+              ? h('div', { className: 'dpb-muted' }, t('routeTargetAuth'))
               : null,
           ),
         ),
@@ -1029,10 +1154,32 @@ window.__ModuleLoader__.load({
             exampleEndpoint !== undefined && exampleEndpoint.requiresAgent !== null
               ? h('div', { className: 'dpb-muted' }, t('usageNote'))
               : null,
+            routeExample !== undefined
+              ? h('div', { className: 'dpb-muted' }, t('usageRoutes'))
+              : null,
+            routeExample !== undefined
+              ? h(
+                  'pre',
+                  { className: 'dpb-pre' },
+                  'curl -s \\\n  -H "Authorization: Bearer <token>" \\\n  ' +
+                    state.baseUrl +
+                    '/http' +
+                    routeExamplePath,
+                )
+              : null,
+            routeExample !== undefined
+              ? h('div', { className: 'dpb-muted' }, t('usageRouteNote'))
+              : null,
           ),
         ),
 
-        h('div', { className: 'dpb-foot' }, dirty ? h('span', { className: 'dpb-muted' }, t('unsaved')) : null, saveButton),
+        ),
+        h(
+          'div',
+          { className: 'dpb-foot' },
+          h('span', { className: 'dpb-muted' }, dirty ? t('unsaved') : t('noChanges')),
+          saveButton,
+        ),
       );
     }
 
@@ -1056,6 +1203,7 @@ window.__ModuleLoader__.load({
       var t = options.t;
       var selected = options.selected;
       var canSelect = row.endpointCount > 0;
+      var httpRouteCount = typeof row.httpRouteCount === 'number' ? row.httpRouteCount : 0;
       var detail = options.detail;
       var open = detail !== undefined;
       var checkedInput = h('input', {
@@ -1098,7 +1246,12 @@ window.__ModuleLoader__.load({
           { className: 'dpb-plugin-meta' },
           canSelect
             ? h('span', { className: 'dpb-badge' }, t('endpointCount', { n: row.endpointCount }))
-            : h('span', { className: 'dpb-muted' }, t('noApi')),
+            : httpRouteCount > 0
+              ? h('span', { className: 'dpb-muted' }, t('routeOnly'))
+              : h('span', { className: 'dpb-muted' }, t('noApi')),
+          httpRouteCount > 0
+            ? h('span', { className: 'dpb-badge dpb-badge-brand' }, t('httpRouteCount', { n: httpRouteCount }))
+            : null,
           row.streamCount > 0 ? h('span', { className: 'dpb-badge dpb-badge-warn' }, t('streamCount', { n: row.streamCount })) : null,
           canSelect
             ? h(
@@ -1116,6 +1269,49 @@ window.__ModuleLoader__.load({
             : null,
         ),
         open ? renderDetail(row, detail, t, options.lang) : null,
+      );
+    }
+
+    /** Render one selectable HTTP route group. */
+    function renderRouteGroup(group, t, selected, onToggle) {
+      var shown = Array.isArray(group.paths) ? group.paths.slice(0, 4) : [];
+      var rest = Array.isArray(group.paths) ? group.paths.length - shown.length : 0;
+      return h(
+        'div',
+        { key: group.id, className: 'dpb-plugin' + (selected ? ' selected' : '') },
+        h(
+          'div',
+          { className: 'dpb-plugin-main' },
+          h('input', {
+            type: 'checkbox',
+            checked: selected,
+            onChange: function () {
+              onToggle(group.id);
+            },
+            'aria-label': group.title,
+          }),
+          h(
+            'span',
+            { className: 'dpb-plugin-text' },
+            h(
+              'span',
+              { className: 'dpb-plugin-title' },
+              group.title,
+              group.thirdParty
+                ? h('span', { className: 'dpb-badge dpb-badge-brand' }, t('thirdParty'))
+                : h('span', { className: 'dpb-badge' }, t('systemRoute')),
+              group.prefixes ? h('span', { className: 'dpb-badge' }, t('routePrefix')) : null,
+            ),
+            h('span', { className: 'dpb-plugin-pkg' }, group.package === null || group.package === undefined ? group.id : group.package),
+            h('span', { className: 'dpb-plugin-desc dpb-mono' }, shown.join('  ·  ')),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'dpb-plugin-meta' },
+          h('span', { className: 'dpb-badge' }, t('routeCount', { n: group.routeCount })),
+          rest > 0 ? h('span', { className: 'dpb-muted' }, '+' + rest) : null,
+        ),
       );
     }
 

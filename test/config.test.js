@@ -56,11 +56,13 @@ test('normalizeConfig keeps valid fields and drops invalid packages', () => {
       42,
       null,
     ],
+    exposedRoutes: ['mcp-manager-plus', 'dsh-session-manager', 'mcp-manager-plus', '', 'bad route', 42],
     extra: 'ignored',
   });
   assert.equal(config.enabled, false);
   assert.equal(config.exposeTools, true);
   assert.deepEqual(config.exposedPackages, ['@scope/pkg', 'plain']);
+  assert.deepEqual(config.exposedRoutes, ['mcp-manager-plus', 'dsh-session-manager']);
   assert.equal(config.version, 1);
   assert.equal('extra' in config, false);
 });
@@ -70,6 +72,7 @@ test('normalizeConfig defaults enabled on and tools off', () => {
   assert.equal(config.enabled, true);
   assert.equal(config.exposeTools, false);
   assert.deepEqual(config.exposedPackages, []);
+  assert.deepEqual(config.exposedRoutes, []);
   assert.equal(config.token, '');
 });
 
@@ -94,11 +97,13 @@ test('saveConfigSync round-trips atomically with a private mode', () => {
     enabled: true,
     token: 'b'.repeat(48),
     exposedPackages: ['@scope/pkg'],
+    exposedRoutes: ['mcp-manager-plus'],
     exposeTools: true,
   });
   assert.equal(saved.token, 'b'.repeat(48));
   const parsed = JSON.parse(readFileSync(file, 'utf8'));
   assert.deepEqual(parsed.exposedPackages, ['@scope/pkg']);
+  assert.deepEqual(parsed.exposedRoutes, ['mcp-manager-plus']);
   assert.equal(parsed.exposeTools, true);
   if (process.platform !== 'win32') {
     assert.equal(statSync(file).mode & 0o777, 0o600);
@@ -111,7 +116,7 @@ test('saveConfigSync round-trips atomically with a private mode', () => {
 test('saveConfigSync provisions a token when one is absent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dpb-config-'));
   const file = join(dir, 'plugins-bridge.json');
-  const saved = saveConfigSync(file, { enabled: true, exposedPackages: [], exposeTools: false });
+  const saved = saveConfigSync(file, { enabled: true, exposedPackages: [], exposedRoutes: [], exposeTools: false });
   assert.equal(saved.token.length, 48);
 });
 

@@ -34,6 +34,8 @@ route list.
     "plugin": "/plugins-bridge/v1/plugin?package=<name>",
     "agents": "/plugins-bridge/v1/agents",
     "invoke": "/plugins-bridge/v1/invoke",
+    "routes": "/plugins-bridge/v1/routes",
+    "http": "/plugins-bridge/v1/http/<route-group>/<path>",
     "tools": "/plugins-bridge/v1/tools",
     "toolInvoke": "/plugins-bridge/v1/tools/invoke"
   }
@@ -254,6 +256,85 @@ Business errors thrown by the method are reported with their own code and a
 **Timeouts.** A Remote call is aborted after 120 seconds or when the client
 disconnects.
 
+### List HTTP route groups
+
+#### `GET /plugins-bridge/v1/routes`
+
+Lists every route group discovered on `dsh-host-webserver`, including groups
+that are not selected. `selected` says whether group calls are currently
+allowed.
+
+```json
+{
+  "ok": true,
+  "routes": [
+    {
+      "id": "mcp-manager-plus",
+      "title": "MCP Manager",
+      "package": "dsh-mcp-manager-plus",
+      "thirdParty": true,
+      "selected": true,
+      "kinds": ["prefix"],
+      "prefixes": true,
+      "routeCount": 1,
+      "paths": ["/mcp-manager-plus"]
+    },
+    {
+      "id": "dsh-session-manager",
+      "title": "dsh-session-manager",
+      "package": "dsh-session-manager",
+      "thirdParty": true,
+      "selected": false,
+      "kinds": ["exact"],
+      "prefixes": false,
+      "routeCount": 8,
+      "paths": ["/dsh-session-manager/delete", "/dsh-session-manager/pause", "…"]
+    }
+  ]
+}
+```
+
+A group is attributed to a package by its top-level path segment. Unmatched
+groups have `package: null` and `thirdParty: false` (DSH built-in); they are
+selectable only after "Show DSH built-in routes" is enabled in Settings.
+
+### Proxy an HTTP route
+
+#### `ANY /plugins-bridge/v1/http/<route-group>/<path>`
+
+Forwards the request to the matching registered route after checking that the
+group is selected. The method, headers, request body, and response are passed
+through unchanged; only `req.url` is rewritten to the target path. The target
+route's own checks still run — loopback, method, body, and (when it uses
+`ctx.connection.requestRejection`) the DSH browser session.
+
+```sh
+# Session Manager (exact routes)
+curl -s -X POST "$BASE/http/dsh-session-manager/delete" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"id":"session-…"}'
+
+# MCP Manager (prefix route)
+curl -s "$BASE/http/mcp-manager-plus/servers" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Only paths under a selected group are forwarded. The bridge rejects its own
+prefix, and `findRoute` uses the same exact → longest-prefix order as the Web
+server. Upgrade (WebSocket) routes are not proxied.
+
+| Code | HTTP | Meaning |
+|---|---:|---|
+| `route-not-exposed` | 403 | The route group is not in `exposedRoutes`. |
+| `recursive-route` | 403 | The target is the bridge's own `/plugins-bridge` prefix. |
+| `missing-route-path` | 400 | `/v1/http` was called without a target path. |
+| `route-not-found` | 404 | No registered route matches the target path. |
+
+If the target route itself returns an error (401 for a missing browser session,
+405 for a method mismatch, 400 for its own body validation), that response is
+passed through unchanged.
+
 ### Agent tools
 
 Agent tools are disabled by default; enable **Expose agent tools** in Settings.
@@ -321,7 +402,7 @@ page and for building another in-app UI.
 
 | Route | Method | Purpose |
 |---|---|---|
-| `/plugins-bridge/api/state` | GET | Full state: catalog, stats, config, token, agents, tools. |
+| `/plugins-bridge/api/state` | GET | Full state: catalog, route groups, stats, config, token, agents, tools. |
 | `/plugins-bridge/api/plugin?package=…` | GET | Full endpoint schemas for one package. |
 | `/plugins-bridge/api/config` | POST | Replace enablement/allowlist/tools; optionally regenerate the token. |
 | `/plugins-bridge/api/test` | POST | Invoke one exposed endpoint with the management handler (no token). |
@@ -332,13 +413,15 @@ page and for building another in-app UI.
 {
   "enabled": true,
   "exposedPackages": ["@deepseek-ai/dsh-commands"],
+  "exposedRoutes": ["mcp-manager-plus", "dsh-session-manager"],
   "exposeTools": false,
   "regenerateToken": false
 }
 ```
 
 Every field is optional; omitted fields keep their current value. The response
-is the new state. Regenerating the token immediately revokes old clients.
+is the new state. `exposedRoutes` holds route-group ids from `GET /v1/routes`.
+Regenerating the token immediately revokes old clients.
 
 Writes require `content-type: application/json`; a browser `Origin` must match
 the request `Host`. A request without the DSH browser cookie receives
